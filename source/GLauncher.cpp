@@ -1,5 +1,5 @@
 #include "GLauncher.h"
-
+#include "CObject.h"
 #ifndef GRENADE_CRUTCH
 #include "CCustomProjectileInfo.h"
 #else
@@ -14,54 +14,39 @@
 #include "CMessages.h"
 #endif // DEBUG
 
-#include "ini.h"
 
-uint GLauncher::WEAPON_GLAUNCHER1;
-int GLauncher::PROJECTILE_MODEL_ID1;
-float GLauncher::GLAUNCHER_FORCE1;
+//#include "ini.h"
+#include <unordered_map>
+#include "IniReader.h"
+int32_t NUM_PROJECTILES = 32;
+//uint GLauncher::WEAPON_GLAUNCHER1;
+//int GLauncher::PROJECTILE_MODEL_ID1;
+//float GLauncher::GLAUNCHER_FORCE1;
 
-uint GLauncher::WEAPON_GLAUNCHER2;
-int GLauncher::PROJECTILE_MODEL_ID2;
-float GLauncher::GLAUNCHER_FORCE2;
-
-void GLauncher::ReadConfig() {
-
-	mINI::INIFile file(PLUGIN_PATH((char*)"Grenade_Launcher.ini"));
-	mINI::INIStructure ini;
-	file.read(ini);
-
-	std::string name = "Grenade_Launcher";
-	//std::string formatted_str = std::format("{}{}", name, i);
-
-	//const char* formatted_str2 = formatted_str.c_str();
-	const char* formatted_str2 = name.c_str();
-
-	std::string str1 = ini.get(formatted_str2).get("WEAPON_ID1");
-	const char* strb1_1 = str1.c_str();
-
-	std::string str2 = ini.get(formatted_str2).get("PROJECTILE_MODEL_ID1");
-	const char* strb2_1 = str2.c_str();
-
-	std::string str3 = ini.get(formatted_str2).get("GLAUNCHER_FORCE1");
-	const char* strb3_1 = str3.c_str();
-
-	std::string str4 = ini.get(formatted_str2).get("WEAPON_ID2");
-	const char* strb4_1 = str4.c_str();
-
-	std::string str5 = ini.get(formatted_str2).get("PROJECTILE_MODEL_ID2");
-	const char* strb5_1 = str5.c_str();
-
-	std::string str6 = ini.get(formatted_str2).get("GLAUNCHER_FORCE2");
-	const char* strb6_1 = str6.c_str();
-		
-	//type[i] = std::atoi(strb1_1);
-	GLauncher::WEAPON_GLAUNCHER1 = std::atoi(strb1_1);
-	GLauncher::PROJECTILE_MODEL_ID1 = std::atoi(strb2_1);
-	GLauncher::GLAUNCHER_FORCE1 = std::atof(strb3_1);
-
-	GLauncher::WEAPON_GLAUNCHER2 = std::atoi(strb4_1);
-	GLauncher::PROJECTILE_MODEL_ID2 = std::atoi(strb5_1);
-	GLauncher::GLAUNCHER_FORCE2 = std::atof(strb6_1);
+//uint GLauncher::WEAPON_GLAUNCHER2;
+//int GLauncher::PROJECTILE_MODEL_ID2;
+//float GLauncher::GLAUNCHER_FORCE2;
+class CInterestingEvents;
+CInterestingEvents& g_InterestingEvents = *(CInterestingEvents*)0xC0B058;
+void Add(int type, CEntity* entity) 
+{
+	plugin::CallMethod<0x602590, CInterestingEvents*, int, CEntity*>(&g_InterestingEvents, type, entity);
+}
+std::unordered_map<int, LaunchersData> g_LaunchersData;
+void GLauncher::ReadConfig() 
+{
+	CIniReader ini(PLUGIN_PATH((char*)"Grenade_Launcher.ini"));
+	NUM_PROJECTILES = ini.ReadInteger("MAIN", "NUM_PROJECTILES", 32);
+	for (int i = 1; i < 512; ++i) {
+		std::string section = std::format("GRENADE_LAUNCHER{}", i);
+		int weaponId1 = ini.ReadInteger(section, "WEAPON_ID", -1);
+		if (weaponId1 != -1) {
+			int modelId1 = ini.ReadInteger(section, "PROJECTILE_MODEL_ID", 0);
+			float force1 = ini.ReadFloat(section, "GLAUNCHER_FORCE", 0.0f);
+			bool streak = ini.ReadBoolean(section, "GLAUNCHER_PROJECTILE_STREAK", true);
+			g_LaunchersData[weaponId1] = LaunchersData{ weaponId1, modelId1, force1, streak };
+		}
+	}
 }
 
 bool __fastcall GLauncher::CheckForGLauncher(CWeapon* _this, int, CEntity* firingEntity, CVector* posn, CVector* effectPosn, CEntity* targetEntity, CVector* target, CVector* posnForDriveBy, bool a8, bool additionalEffects) {
@@ -71,17 +56,18 @@ bool __fastcall GLauncher::CheckForGLauncher(CWeapon* _this, int, CEntity* firin
 #else
 	float power = (TheCamera.m_aCams[TheCamera.m_nActiveCam].m_vecFront.z + 1.f) * 0.75f;
 #endif // !GRENADE_CRUTCH
-
-	if (_this->m_eWeaponType != GLauncher::WEAPON_GLAUNCHER1 && _this->m_eWeaponType != GLauncher::WEAPON_GLAUNCHER2) //WEAPON_GLAUNCHER
+	auto& data = g_LaunchersData[_this->m_eWeaponType];
+	if (_this->m_eWeaponType /*!= GLauncher::WEAPON_GLAUNCHER1 && _this->m_eWeaponType != GLauncher::WEAPON_GLAUNCHER2*/ != data.WeaponID) //WEAPON_GLAUNCHER
 		return _this->FireInstantHit(firingEntity, posn, effectPosn, targetEntity, target, posnForDriveBy, a8, additionalEffects);
 	else {
 		CPed* shooter = (CPed*)firingEntity;
 
-		if (_this->m_eWeaponType == GLauncher::WEAPON_GLAUNCHER1)
+		power = data.Force;
+		/*if (_this->m_eWeaponType == GLauncher::WEAPON_GLAUNCHER1)
 			power = GLAUNCHER_FORCE1;
 		else if (_this->m_eWeaponType == GLauncher::WEAPON_GLAUNCHER2)
 			power = GLAUNCHER_FORCE2;
-		else power = 1.f;
+		else power = 1.f;*/
 
 		if (shooter == FindPlayerPed()) {
 			// lil bit hacky, cuz when stat is equal 0 it will be 1 anyway... Should I do smt about that?
@@ -100,7 +86,7 @@ bool GLauncher::FireProjectile(CWeapon* _this, CEntity* shooter, CVector* posn, 
 #ifndef GRENADE_CRUTCH
 	eWeaponType projectileType = _this->m_eWeaponType;
 #else
-	eWeaponType projectileType = WEAPON_GRENADE;
+	eWeaponType projectileType = WEAPONTYPE_GRENADE;
 #endif // !GRENADE_CRUTCH
 
 
@@ -116,7 +102,7 @@ bool GLauncher::FireProjectile(CWeapon* _this, CEntity* shooter, CVector* posn, 
 
 	if (!CWorld::GetIsLineOfSightClear(source, targetVector, true, true, false, true, false, false, false))
 	{
-		if (_this->m_eWeaponType != WEAPON_GRENADE)
+		if (_this->m_eWeaponType != WEAPONTYPE_GRENADE)
 
 #ifndef GRENADE_CRUTCH
 			CCustomProjectileInfo::RemoveNotAdd(shooter, projectileType, *posn);
@@ -134,17 +120,17 @@ bool GLauncher::FireProjectile(CWeapon* _this, CEntity* shooter, CVector* posn, 
 				if (!CWorld::TestSphereAgainstWorld(source, 0.5f, nullptr, false, false, true, false, false, false))
 
 #ifndef GRENADE_CRUTCH
-					CCustomProjectileInfo::AddProjectile(shooter, WEAPON_GRENADE, source, 0.0f, nullptr, targetEntity);
+					CCustomProjectileInfo::AddProjectile(shooter, WEAPONTYPE_GRENADE, source, 0.0f, nullptr, targetEntity);
 #else
-					CProjectileInfo::AddProjectile(shooter, WEAPON_GRENADE, source, 0.0f, nullptr, targetEntity);
+					CProjectileInfo::AddProjectile(shooter, WEAPONTYPE_GRENADE, source, 0.0f, nullptr, targetEntity);
 
 #endif // !GRENADE_CRUTCH
 				else
 
 #ifndef GRENADE_CRUTCH
-					CCustomProjectileInfo::RemoveNotAdd(shooter, WEAPON_GRENADE, *posn);
+					CCustomProjectileInfo::RemoveNotAdd(shooter, WEAPONTYPE_GRENADE, *posn);
 #else
-					CProjectileInfo::RemoveNotAdd(shooter, WEAPON_GRENADE, *posn);
+					CProjectileInfo::RemoveNotAdd(shooter, WEAPONTYPE_GRENADE, *posn);
 #endif // !GRENADE_CRUTCH
 			}
 		}
@@ -164,7 +150,7 @@ bool GLauncher::FireProjectile(CWeapon* _this, CEntity* shooter, CVector* posn, 
 	plugin::Call<0x532010, int, CPed*, CPed*>(17, (CPed*)shooter, (CPed*)shooter);
 
 	// Interesting Events
-	//plugin::CallMethod<0x602590, CInterestingEvents*, int, CEntity*>(this, 22, shooter);
+	Add(22, shooter);
 
 	return true;
 }

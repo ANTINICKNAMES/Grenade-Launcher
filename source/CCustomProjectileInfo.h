@@ -19,7 +19,8 @@ public:
 
 public:
 	//static CCustomProjectileInfo* GetProjectileInfo(int32_t id);
-	static CObject* ms_apCustomProjectile[NUM_PROJECTILES];
+	//static CObject* ms_apCustomProjectile[NUM_PROJECTILES];
+	static std::vector<CObject*> ms_apCustomProjectile;
 
 	static void Initialise();
 	static bool AddProjectile(CEntity* ped, eWeaponType weapon, CVector pos, float speed, CVector* direction, CEntity* victim);
@@ -31,4 +32,5 @@ public:
 
 };
 
-extern CCustomProjectileInfo gaCustomProjectileInfo[NUM_PROJECTILES];
+extern std::vector<CCustomProjectileInfo> gaProjectileInfo;
+//extern CCustomProjectileInfo gaCustomProjectileInfo[NUM_PROJECTILES];
