@@ -1,3 +1,4 @@
+#include "plugin.h"
 #include "GLauncher.h"
 #include "CObject.h"
 #ifndef GRENADE_CRUTCH
@@ -14,7 +15,7 @@
 #include "CMessages.h"
 #endif // DEBUG
 
-
+using namespace plugin;
 //#include "ini.h"
 #include <unordered_map>
 #include "IniReader.h"
@@ -26,7 +27,16 @@ int32_t NUM_PROJECTILES = 32;
 //uint GLauncher::WEAPON_GLAUNCHER2;
 //int GLauncher::PROJECTILE_MODEL_ID2;
 //float GLauncher::GLAUNCHER_FORCE2;
-class CInterestingEvents;
+#include "CEventGroup.h"
+// 0x4ABA50
+CEventGlobalGroup* GetEventGlobalGroup() 
+{
+	return CallAndReturn<CEventGlobalGroup*, 0x4ABA50>();
+}
+CEventGunShot::CEventGunShot(CEntity* entity, CVector startPoint, CVector endPoint, bool bHasNoSound) 
+{
+	CallMethod<0x4AC610, CEventGunShot*, CEntity*, CVector, CVector, bool>(this, entity, startPoint, endPoint, bHasNoSound);
+}
 CInterestingEvents& g_InterestingEvents = *(CInterestingEvents*)0xC0B058;
 void Add(int type, CEntity* entity) 
 {
@@ -57,11 +67,10 @@ bool __fastcall GLauncher::CheckForGLauncher(CWeapon* _this, int, CEntity* firin
 	float power = (TheCamera.m_aCams[TheCamera.m_nActiveCam].m_vecFront.z + 1.f) * 0.75f;
 #endif // !GRENADE_CRUTCH
 	auto& data = g_LaunchersData[_this->m_eWeaponType];
+	CPed* shooter = (CPed*)firingEntity;
 	if (_this->m_eWeaponType /*!= GLauncher::WEAPON_GLAUNCHER1 && _this->m_eWeaponType != GLauncher::WEAPON_GLAUNCHER2*/ != data.WeaponID) //WEAPON_GLAUNCHER
 		return _this->FireInstantHit(firingEntity, posn, effectPosn, targetEntity, target, posnForDriveBy, a8, additionalEffects);
 	else {
-		CPed* shooter = (CPed*)firingEntity;
-
 		power = data.Force;
 		/*if (_this->m_eWeaponType == GLauncher::WEAPON_GLAUNCHER1)
 			power = GLAUNCHER_FORCE1;
@@ -147,10 +156,14 @@ bool GLauncher::FireProjectile(CWeapon* _this, CEntity* shooter, CVector* posn, 
 	CWorld::pIgnoreEntity = nullptr;
 
 	// CCrime::ReportCrime(CRIME_EXPLOSION, shooter, shooter);
-	plugin::Call<0x532010, int, CPed*, CPed*>(17, (CPed*)shooter, (CPed*)shooter);
+	Call<0x532010, int, CPed*, CPed*>(17, (CPed*)shooter, (CPed*)shooter);
 
-	// Interesting Events
+	// Interesting Events (Really fucking interesting)
 	Add(22, shooter);
 
+	// Flee
+	CEventGlobalGroup* gr = GetEventGlobalGroup();
+	CEventGunShot gs = CEventGunShot{ shooter, *posn, *posn, false };
+	AddEvent(gr, &gs, false);
 	return true;
 }

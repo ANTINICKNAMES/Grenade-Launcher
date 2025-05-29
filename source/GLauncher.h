@@ -4,6 +4,7 @@
 
 //#define GRENADE_CRUTCH
 //#define NUM_PROJECTILES 32
+using namespace plugin;
 extern int32_t NUM_PROJECTILES;
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof(array[0]))
 
@@ -35,6 +36,17 @@ public:
 	//static int PROJECTILE_MODEL_ID2;
 	//static float GLAUNCHER_FORCE2;
 };
+class CEventGunShot : public CEventGroup {
+public:
+	CEventGunShot(CEntity* entity, CVector startPoint, CVector endPoint, bool bHasNoSound);
+};
+class CEvent;
+class CInterestingEvents;
+class CEventGlobalGroup;
+static CEvent* AddEvent(CEventGlobalGroup* eventg, CEventGunShot* eventt, bool bValid = false)
+{
+	return CallMethodAndReturn<CEvent*, 0x4AB420, CEventGlobalGroup*, CEventGunShot*, bool>(eventg, eventt, bValid);
+}
 
 struct LaunchersData
 {
