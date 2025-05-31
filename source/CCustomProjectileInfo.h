@@ -15,6 +15,8 @@ public:
 	CEntity* m_pSource;
 	uint32_t m_nExplosionTime;
 	bool m_bInUse;
+	bool m_bHasHitWallTooClose;
+	uint32_t m_nLastTimeSinceCreating;
 	CVector m_vecPos;
 
 public:

@@ -16,6 +16,21 @@ static CVector Normalized(CVector vec)
 	out.Normalise();
 	return out;
 }
+inline float
+DotProduct(const CVector& v1, const CVector& v2)
+{
+	return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+}
+
+inline float Dot(const CVector& s, const CVector& o) {
+	return DotProduct(s, o);
+}
+
+inline float sq(float x) 
+{
+	return x* x;
+}
+
 //struct GLauncher {
 //	unsigned int m_nWeapons;
 //};
@@ -55,4 +70,5 @@ struct LaunchersData
 	float Force;
 	bool HaveStreak;
 };
+
 extern std::unordered_map<int, LaunchersData> g_LaunchersData;

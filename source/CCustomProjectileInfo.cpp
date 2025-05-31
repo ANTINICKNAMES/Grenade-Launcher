@@ -15,6 +15,7 @@
 #include "CTimer.h"
 #include "CVector.h"
 #include "CProjectile.h"
+#include "CWeather.h"
 #ifdef DEBUG
 #include "CMessages.h"
 #endif // DEBUG
@@ -45,6 +46,8 @@ CCustomProjectileInfo::Initialise()
 		gaProjectileInfo[i].m_pSource = nullptr;
 		gaProjectileInfo[i].m_nExplosionTime = 0;
 		gaProjectileInfo[i].m_bInUse = false;
+		gaProjectileInfo[i].m_bHasHitWallTooClose = false;
+		gaProjectileInfo[i].m_nLastTimeSinceCreating = 0;
 	}
 
 	projectileInUse = 0;
@@ -113,6 +116,7 @@ CCustomProjectileInfo::AddProjectile(CEntity* entity, eWeaponType weapon, CVecto
 	{
 	//case GLauncher::WEAPON_GLAUNCHER: //WEAPON_GLAUNCHER
 		ms_apCustomProjectile[i] = new CProjectile(data.ProjectileModelID);
+		gaProjectileInfo[i].m_nLastTimeSinceCreating = CTimer::m_snTimeInMilliseconds;
 		//break;
 	//default: break;
 	}
@@ -145,6 +149,35 @@ CCustomProjectileInfo::AddProjectile(CEntity* entity, eWeaponType weapon, CVecto
 	if (entity && entity->m_nType == ENTITY_TYPE_PED && !ped->m_apCollidedEntities) {
 		ped->m_apCollidedEntities[0] = ms_apCustomProjectile[i];
 	}
+	CVector start = ms_apCustomProjectile[i]->GetPosition();
+	CVector dir = Normalized(ms_apCustomProjectile[i]->m_vecMoveSpeed);
+	CVector end = start + dir * 5.0f;
+
+	CColPoint colPoint;
+	CEntity* hitEntity = nullptr;
+
+	CWorld::pIgnoreEntity = ms_apCustomProjectile[i];
+	bool hit = CWorld::ProcessLineOfSight(start, end, colPoint, hitEntity, true, true, true, true, false, false, false, false);
+	CWorld::pIgnoreEntity = nullptr;
+
+	if (hit && gaProjectileInfo[i].m_pSource) {
+		//float distToWall = (ped->GetPosition() - start).Magnitude();
+		//const float maxDistanceForCloseShot = 1.0f;
+
+		if (MagnitudeSqr(gaProjectileInfo[i].m_vecPos - gaProjectileInfo[i].m_pSource->GetPosition()) <= 1.0f) {
+			ms_apCustomProjectile[i]->m_vecMoveSpeed = CVector(0.0f, 0.0f, 0.0f);
+			ms_apCustomProjectile[i]->m_nPhysicalFlags.bApplyGravity = false;
+			ms_apCustomProjectile[i]->m_fElasticity = 0.0f;
+			ms_apCustomProjectile[i]->SetPosn(colPoint.m_vecPoint + colPoint.m_vecNormal * 0.01f);
+			gaProjectileInfo[i].m_bHasHitWallTooClose = true;
+		}
+		else {
+			gaProjectileInfo[i].m_bHasHitWallTooClose = false;
+		}
+	}
+	//else {
+	//	gaProjectileInfo[i].m_bHasHitWallTooClose = false;
+	//}
 	return true;
 }
 
@@ -163,6 +196,7 @@ CCustomProjectileInfo::RemoveProjectile(CCustomProjectileInfo* info, CObject* pr
 	projectileInUse--;
 
 	info->m_bInUse = false;
+	info->m_bHasHitWallTooClose = false;
 	CWorld::Remove(projectile);
 	delete projectile;
 }
@@ -191,6 +225,7 @@ CCustomProjectileInfo::RemoveAllProjectiles()
 			projectileInUse--;
 
 			gaProjectileInfo[i].m_bInUse = false;
+			gaProjectileInfo[i].m_bHasHitWallTooClose = false;
 			CWorld::Remove(ms_apCustomProjectile[i]);
 			delete ms_apCustomProjectile[i];
 		}
@@ -204,7 +239,22 @@ CCustomProjectileInfo::Update()
 		return;
 
 	for (size_t i = 0; i < gaProjectileInfo.size(); i++) {
-		if (!gaProjectileInfo[i].m_bInUse) continue;
+		if (gaProjectileInfo[i].m_pSource) {
+			bool FarAwayEnough = !((gaProjectileInfo[i].m_vecPos - TheCamera.GetPosition()).MagnitudeSqr2D() < sq(300.0f));
+			static uint Time = 0;
+			bool SomeTimePassed = CTimer::m_snTimeInMilliseconds > gaProjectileInfo[i].m_nLastTimeSinceCreating + 5000;
+			if (gaProjectileInfo[i].m_bHasHitWallTooClose && (FarAwayEnough || SomeTimePassed))
+			{
+				Time = CTimer::m_snTimeInMilliseconds;
+				projectileInUse--;
+
+				gaProjectileInfo[i].m_bInUse = false;
+				gaProjectileInfo[i].m_bHasHitWallTooClose = false;
+				CWorld::Remove(ms_apCustomProjectile[i]);
+				delete ms_apCustomProjectile[i];
+			}
+		}
+		if (!gaProjectileInfo[i].m_bInUse || gaProjectileInfo[i].m_bHasHitWallTooClose) continue;
 
 		CPed* ped = (CPed*)gaProjectileInfo[i].m_pSource;
 		if (ped != nullptr && ped->m_nType == ENTITY_TYPE_PED && !ped->IsPointerValid())
@@ -212,6 +262,8 @@ CCustomProjectileInfo::Update()
 
 		if (ms_apCustomProjectile[i] == nullptr) {
 			projectileInUse--;
+
+			gaProjectileInfo[i].m_bHasHitWallTooClose = false;
 
 			gaProjectileInfo[i].m_bInUse = false;
 			continue;
@@ -245,7 +297,6 @@ CCustomProjectileInfo::Update()
 			ms_apCustomProjectile[i]->UpdateRwFrame();
 		}
 
-
 		const CVector& projectilePos = ms_apCustomProjectile[i]->GetPosition();
 		CVector nextPos = CTimer::ms_fTimeStep * ms_apCustomProjectile[i]->m_vecMoveSpeed + projectilePos;
 
@@ -259,33 +310,34 @@ CCustomProjectileInfo::Update()
 			RegStreak(reinterpret_cast<uint32_t>(ms_apCustomProjectile[i]), 100, 100, 100, 255, vecStreakStart, vecStreakEnd);
 		}
 
-		if (CTimer::m_snTimeInMilliseconds <= gaProjectileInfo[i].m_nExplosionTime || gaProjectileInfo[i].m_nExplosionTime == 0) {
-			if (gaProjectileInfo[i].m_eWeaponType == WEAPONTYPE_ROCKET) {
-				CVector pos = ms_apCustomProjectile[i]->GetPosition();
-				CWorld::pIgnoreEntity = ms_apCustomProjectile[i];
-				if (ms_apCustomProjectile[i]->GetHasCollidedWithAnyObject()
-					|| !CWorld::GetIsLineOfSightClear(gaProjectileInfo[i].m_vecPos, pos, true, true, true, true, false, false, false)) {
-					RemoveProjectile(&gaProjectileInfo[i], ms_apCustomProjectile[i]);
-				}
-				CWorld::pIgnoreEntity = nullptr;
-				ms_apCustomProjectile[i]->m_vecMoveSpeed *= 1.07f;
-
-			}
-			else if (gaProjectileInfo[i].m_eWeaponType == data.WeaponID /*gaProjectileInfo[i].m_eWeaponType == GLauncher::WEAPON_GLAUNCHER1
-				|| gaProjectileInfo[i].m_eWeaponType == GLauncher::WEAPON_GLAUNCHER2*/) { // WEAPON_GLAUNCHER
-				CVector pos = ms_apCustomProjectile[i]->GetPosition();
-				CWorld::pIgnoreEntity = ms_apCustomProjectile[i];
-
-				if (gaProjectileInfo[i].m_pSource == nullptr ||
-					(MagnitudeSqr(gaProjectileInfo[i].m_vecPos - gaProjectileInfo[i].m_pSource->GetPosition()) >= 2.0f)) {
-					if (CTimer::m_snTimeInMilliseconds >= gaProjectileInfo[i].m_nExplosionTime || ms_apCustomProjectile[i]->m_bHasContacted ||
-						!CWorld::GetIsLineOfSightClear(gaProjectileInfo[i].m_vecPos, pos, true, true, true, true, false, false, false)) {
+		//if (!gaProjectileInfo[i].m_bHasHitWallTooClose) {
+			if (CTimer::m_snTimeInMilliseconds <= gaProjectileInfo[i].m_nExplosionTime || gaProjectileInfo[i].m_nExplosionTime == 0) {
+				if (gaProjectileInfo[i].m_eWeaponType == WEAPONTYPE_ROCKET) {
+					CVector pos = ms_apCustomProjectile[i]->GetPosition();
+					CWorld::pIgnoreEntity = ms_apCustomProjectile[i];
+					if (ms_apCustomProjectile[i]->GetHasCollidedWithAnyObject()
+						|| !CWorld::GetIsLineOfSightClear(gaProjectileInfo[i].m_vecPos, pos, true, true, true, true, false, false, false)) {
 						RemoveProjectile(&gaProjectileInfo[i], ms_apCustomProjectile[i]);
 					}
+					CWorld::pIgnoreEntity = nullptr;
+					ms_apCustomProjectile[i]->m_vecMoveSpeed *= 1.07f;
 				}
-				CWorld::pIgnoreEntity = nullptr;
+				else if (gaProjectileInfo[i].m_eWeaponType == data.WeaponID /*gaProjectileInfo[i].m_eWeaponType == GLauncher::WEAPON_GLAUNCHER1
+					|| gaProjectileInfo[i].m_eWeaponType == GLauncher::WEAPON_GLAUNCHER2*/) { // WEAPON_GLAUNCHER
+					CVector pos = ms_apCustomProjectile[i]->GetPosition();
+					CWorld::pIgnoreEntity = ms_apCustomProjectile[i];
+
+					if (gaProjectileInfo[i].m_pSource == nullptr ||
+						(MagnitudeSqr(gaProjectileInfo[i].m_vecPos - gaProjectileInfo[i].m_pSource->GetPosition()) >= 2.0f)) {
+						if (CTimer::m_snTimeInMilliseconds >= gaProjectileInfo[i].m_nExplosionTime || ms_apCustomProjectile[i]->m_bHasContacted ||
+							!CWorld::GetIsLineOfSightClear(gaProjectileInfo[i].m_vecPos, pos, true, true, true, true, false, false, false)) {
+							RemoveProjectile(&gaProjectileInfo[i], ms_apCustomProjectile[i]);
+						}
+					}
+					CWorld::pIgnoreEntity = nullptr;
+				}
 			}
-		}
+		//}
 
 		gaProjectileInfo[i].m_vecPos = ms_apCustomProjectile[i]->GetPosition();
 	}
