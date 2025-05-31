@@ -79,24 +79,36 @@ CCustomProjectileInfo::AddProjectile(CEntity* entity, eWeaponType weapon, CVecto
 		time = CTimer::m_snTimeInMilliseconds + 10000;
 		SpecialCollisionResponseCase = 5; // UNKNOWN5
 		if (ped->IsPlayer()) {
-			int16_t m_nMode = TheCamera.m_aCams[TheCamera.m_nActiveCam].m_nMode;
+			const auto& cam = TheCamera.m_aCams[TheCamera.m_nActiveCam];
+			int16_t mode = cam.m_nMode;
 
-			if (m_nMode == MODE_AIMWEAPON || m_nMode == MODE_AIMWEAPON_ATTACHED) {
-				matrix.GetForward() = TheCamera.m_aCams[TheCamera.m_nActiveCam].m_vecFront;
-				matrix.GetUp() = TheCamera.m_aCams[TheCamera.m_nActiveCam].m_vecUp;
-				matrix.GetRight().Cross(TheCamera.m_aCams[TheCamera.m_nActiveCam].m_vecUp * -1.f, TheCamera.m_aCams[TheCamera.m_nActiveCam].m_vecFront);
-				matrix.GetPosition() = pos;
-				if (weapon == data.WeaponID)
-					velocity.FromMultiply3x3(matrix, CVector(0.05f, vy, 0.2f));
-				else
-					velocity.FromMultiply3x3(matrix, CVector(0.05f, vy, 0.2f));
-			} else {
+			if (mode == MODE_AIMWEAPON || mode == MODE_AIMWEAPON_ATTACHED) {
+				matrix.GetForward() = cam.m_vecFront;
+				matrix.GetUp() = cam.m_vecUp;
+				matrix.GetRight().Cross(cam.m_vecUp * -1.f, cam.m_vecFront);
+				matrix.GetPosition() = pos + cam.m_vecFront * 0.3f;
+
+				velocity.FromMultiply3x3(matrix, CVector(0.05f, vy, 0.2f));
+			}
+			else {
 				matrix = *ped->GetMatrix();
+				// Fix the projectile not getting stuck in the wall if not aiming
+				if (data.ProjectilesStuckInTheSurfaces) {
+					CVector forward = matrix.GetForward();
+					matrix.GetPosition() = pos + forward * 0.3f;
+				}
+
 				velocity.FromMultiply3x3(matrix, CVector(0.f, vy, 0.f));
 			}
 		}
 		else {
 			matrix = *ped->GetMatrix();
+
+			if (data.ProjectilesStuckInTheSurfaces) {
+				CVector forward = matrix.GetForward();
+				matrix.GetPosition() = pos + forward * 0.3f;
+			}
+
 			velocity.FromMultiply3x3(matrix, CVector(0.f, vy, 0.f));
 		}
 		//break;
@@ -149,30 +161,32 @@ CCustomProjectileInfo::AddProjectile(CEntity* entity, eWeaponType weapon, CVecto
 	if (entity && entity->m_nType == ENTITY_TYPE_PED && !ped->m_apCollidedEntities) {
 		ped->m_apCollidedEntities[0] = ms_apCustomProjectile[i];
 	}
-	CVector start = ms_apCustomProjectile[i]->GetPosition();
-	CVector dir = Normalized(ms_apCustomProjectile[i]->m_vecMoveSpeed);
-	CVector end = start + dir * 5.0f;
+	if (data.ProjectilesStuckInTheSurfaces) {
+		CVector start = ms_apCustomProjectile[i]->GetPosition();
+		CVector dir = Normalized(ms_apCustomProjectile[i]->m_vecMoveSpeed);
+		CVector end = start + dir * 5.0f;
 
-	CColPoint colPoint;
-	CEntity* hitEntity = nullptr;
+		CColPoint colPoint;
+		CEntity* hitEntity = nullptr;
 
-	CWorld::pIgnoreEntity = ms_apCustomProjectile[i];
-	bool hit = CWorld::ProcessLineOfSight(start, end, colPoint, hitEntity, true, true, true, true, false, false, false, false);
-	CWorld::pIgnoreEntity = nullptr;
+		CWorld::pIgnoreEntity = ms_apCustomProjectile[i];
+		bool hit = CWorld::ProcessLineOfSight(start, end, colPoint, hitEntity, true, true, true, true, false, false, false, false);
+		CWorld::pIgnoreEntity = nullptr;
 
-	if (hit && gaProjectileInfo[i].m_pSource) {
-		//float distToWall = (ped->GetPosition() - start).Magnitude();
-		//const float maxDistanceForCloseShot = 1.0f;
+		if (hit && (hitEntity && hitEntity->m_nType != ENTITY_TYPE_PED && hitEntity->m_nType != ENTITY_TYPE_VEHICLE)) {
+			//float distToWall = (ped->GetPosition() - start).Magnitude();
+			//const float maxDistanceForCloseShot = 1.0f;
 
-		if (MagnitudeSqr(gaProjectileInfo[i].m_vecPos - gaProjectileInfo[i].m_pSource->GetPosition()) <= 1.0f) {
-			ms_apCustomProjectile[i]->m_vecMoveSpeed = CVector(0.0f, 0.0f, 0.0f);
-			ms_apCustomProjectile[i]->m_nPhysicalFlags.bApplyGravity = false;
-			ms_apCustomProjectile[i]->m_fElasticity = 0.0f;
-			ms_apCustomProjectile[i]->SetPosn(colPoint.m_vecPoint + colPoint.m_vecNormal * 0.01f);
-			gaProjectileInfo[i].m_bHasHitWallTooClose = true;
-		}
-		else {
-			gaProjectileInfo[i].m_bHasHitWallTooClose = false;
+			if (MagnitudeSqr(gaProjectileInfo[i].m_vecPos - pos) <= 1.0f) {
+				ms_apCustomProjectile[i]->m_vecMoveSpeed = CVector(0.0f, 0.0f, 0.0f);
+				ms_apCustomProjectile[i]->m_nPhysicalFlags.bApplyGravity = false;
+				ms_apCustomProjectile[i]->m_fElasticity = 0.0f;
+				ms_apCustomProjectile[i]->SetPosn(colPoint.m_vecPoint + colPoint.m_vecNormal * 0.01f);
+				gaProjectileInfo[i].m_bHasHitWallTooClose = true;
+			}
+			else {
+				gaProjectileInfo[i].m_bHasHitWallTooClose = false;
+			}
 		}
 	}
 	//else {

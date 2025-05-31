@@ -54,7 +54,8 @@ void GLauncher::ReadConfig()
 			int modelId1 = ini.ReadInteger(section, "PROJECTILE_MODEL_ID", 0);
 			float force1 = ini.ReadFloat(section, "GLAUNCHER_FORCE", 0.0f);
 			bool streak = ini.ReadBoolean(section, "GLAUNCHER_PROJECTILE_STREAK", true);
-			g_LaunchersData[weaponId1] = LaunchersData{ weaponId1, modelId1, force1, streak };
+			bool stucking = ini.ReadBoolean(section, "GLAUNCHER_PROJECTILE_STUCKING", false);
+			g_LaunchersData[weaponId1] = LaunchersData{ weaponId1, modelId1, force1, streak, stucking };
 		}
 	}
 }
